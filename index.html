@@ -67,7 +67,14 @@ let mobileNetModel = null;
 
 function loadConfig(){ try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || "null"); } catch(e){ return null; } }
 function saveConfig(cfg){ localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); appConfig = cfg; }
-function supabase(){ return window.supabase.createClient(appConfig.url, appConfig.key); }
+function supabase(){
+  const factory = (window.supabase && window.supabase.createClient)
+    || (window.supabase && window.supabase.supabase && window.supabase.supabase.createClient);
+  if(typeof factory !== "function"){
+    throw new Error("Library Supabase belum termuat.");
+  }
+  return factory(appConfig.url, appConfig.key);
+}
 function showLoading(v){ document.getElementById("loading").classList.toggle("active", !!v); }
 function esc(s){ return String(s??"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
 function money(n){ return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n||0));}
@@ -336,7 +343,12 @@ async function findMatches(){
     showLoading(false);
   }
 }
-(async function init(){ if(appConfig?.url && appConfig?.key){ await refreshData(); } render(); })();
+window.addEventListener("load", async ()=>{
+  if(appConfig && appConfig.url && appConfig.key){
+    try{ await refreshData(); } catch(e){}
+  }
+  render();
+});
 </script>
 </body>
 </html>
