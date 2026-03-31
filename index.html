@@ -67,11 +67,11 @@ let mobileNetModel = null;
 
 function loadConfig(){ try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || "null"); } catch(e){ return null; } }
 function saveConfig(cfg){ localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); appConfig = cfg; }
-function supabase(){
+function getSupabaseClient(){
   const factory = (window.supabase && window.supabase.createClient)
     || (window.supabase && window.supabase.supabase && window.supabase.supabase.createClient);
   if(typeof factory !== "function"){
-    throw new Error("Library Supabase belum termuat.");
+    throw new Error("Library Supabase belum termuat. Refresh halaman dengan Ctrl+F5.");
   }
   return factory(appConfig.url, appConfig.key);
 }
@@ -286,7 +286,7 @@ async function refreshData(){
   if(!appConfig?.url || !appConfig?.key) return;
   try{
     showLoading(true);
-    const { data, error } = await supabase().from("helm_products").select("*").order("created_at", { ascending:false });
+    const { data, error } = await getSupabaseClient().from("helm_products").select("*").order("created_at", { ascending:false });
     if(error) throw error;
     state.products = (data || []).map(r=>({
       id: r.id, code: r.code, name: r.name, price: Number(r.price || 0), stock: Number(r.stock || 0),
@@ -305,7 +305,7 @@ async function saveProduct(){
     showLoading(true);
     const embedding = await imageEmbeddingFromDataUrl(p.imageData);
     const payload = { code:p.code.trim(), name:p.name.trim(), price:Number(p.price || 0), stock:Number(p.stock || 0), branch:p.branch.trim(), category:p.category.trim(), notes:p.notes.trim(), image_data:p.imageData, image_embedding:embedding };
-    const { error } = await supabase().from("helm_products").insert(payload);
+    const { error } = await getSupabaseClient().from("helm_products").insert(payload);
     if(error) throw error;
     state.add = { code:"", name:"", price:"", stock:"", branch:"", category:"", notes:"", imageData:"" };
     await refreshData(); state.page = "products"; render(); notify("Produk berhasil disimpan.");
@@ -319,7 +319,7 @@ async function deleteProduct(id){
   if(!confirm("Hapus produk ini?")) return;
   try{
     showLoading(true);
-    const { error } = await supabase().from("helm_products").delete().eq("id", id);
+    const { error } = await getSupabaseClient().from("helm_products").delete().eq("id", id);
     if(error) throw error;
     await refreshData(); render();
   } catch(err){
