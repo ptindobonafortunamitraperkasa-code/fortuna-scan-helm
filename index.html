@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fortuna Scan Helm</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root{--bg:#eef4ff;--card:#ffffff;--line:#d8e4ff;--text:#10233f;--muted:#64748b;--primary:#1d4ed8;--success:#0f766e;--danger:#dc2626;--shadow:0 14px 34px rgba(29,78,216,.10)}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--text);background:radial-gradient(circle at top left, rgba(96,165,250,.18), transparent 22%),linear-gradient(180deg,#f8fbff 0%,#edf3ff 100%)}
+    .app{max-width:1320px;margin:0 auto;padding:18px}
+    .topbar,.card{background:var(--card);border:1px solid var(--line);border-radius:24px;box-shadow:var(--shadow)}
+    .topbar{padding:18px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+    h1,h2,h3{margin:0}.subtitle{color:var(--muted);margin-top:6px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+    .tab{border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 14px;font-weight:800;cursor:pointer;color:#28405f}
+    .tab.active{background:linear-gradient(135deg,var(--primary),#2563eb);color:#fff;border-color:transparent}
+    .page{display:none}.page.active{display:block}
+    .grid{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}
+    .card{padding:18px}
+    label{display:block;font-weight:800;margin:12px 0 6px;color:#173155}
+    input,select,textarea{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:14px;background:#fff;color:var(--text);font:inherit}
+    textarea{min-height:100px}
+    .btn{border:1px solid var(--line);background:#fff;color:var(--text);padding:11px 15px;border-radius:14px;cursor:pointer;font-weight:800}
+    .btn.primary{background:linear-gradient(135deg,var(--primary),#2563eb);color:#fff;border-color:transparent}
+    .btn.success{background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;border-color:transparent}
+    .btn.danger{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border-color:transparent}
+    .btn.small{padding:8px 10px;font-size:13px;border-radius:12px}
+    .inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .hint{background:linear-gradient(180deg,#f8fbff 0%,#f2f7ff 100%);border:1px dashed #c9dbff;border-radius:16px;padding:14px;color:#5b6b84;font-size:14px}
+    .badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#e8f1ff;color:#1747b8;font-size:12px;font-weight:800}
+    .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse}
+    th,td{padding:12px 10px;border-bottom:1px solid #edf3ff;text-align:left;font-size:14px;vertical-align:top}
+    th{background:#f8fbff;color:#49617e;font-weight:800}
+    .money-field{position:relative}.money-field .rp{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#64748b;font-weight:700;pointer-events:none}.money-field input{padding-left:42px}
+    .product-card{border:1px solid var(--line);background:#fff;border-radius:20px;padding:14px;display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:start}
+    .product-card img,.preview{width:100%;height:180px;object-fit:cover;border-radius:16px;border:1px solid var(--line);background:#f8fbff}
+    .preview{display:flex;align-items:center;justify-content:center;color:#94a3b8;font-weight:700}
+    .score{font-size:13px;color:#0f766e;font-weight:800;margin-top:6px}
+    .result-list{display:grid;gap:14px}.muted{color:var(--muted)}
+    .loading{position:fixed;inset:0;background:rgba(248,250,252,.72);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center;z-index:999}
+    .loading.active{display:flex}.spinner{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px 20px;box-shadow:var(--shadow)}
+    .setup{max-width:980px;margin:50px auto}.empty{padding:30px;text-align:center;color:#64748b;border:1px dashed var(--line);border-radius:18px;background:#fff}
+    @media (max-width:980px){.grid-2,.product-card{grid-template-columns:1fr}.app{padding:12px}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<div class="loading" id="loading"><div class="spinner">Memproses...</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+<script>
+const APP_NAME = "Fortuna Scan Helm";
+const CONFIG_KEY = "fortuna_scan_helm_config_v1";
+let appConfig = loadConfig();
+let state = {
+  page: "scan",
+  setup: { url: appConfig?.url || "", key: appConfig?.key || "" },
+  products: [],
+  scan: { branch: "ALL", queryImageData: "", results: [] },
+  add: { code: "", name: "", price: "", stock: "", branch: "", category: "", notes: "", imageData: "" }
+};
+let mobileNetModel = null;
+
+function loadConfig(){ try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || "null"); } catch(e){ return null; } }
+function saveConfig(cfg){ localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); appConfig = cfg; }
+function supabase(){ return window.supabase.createClient(appConfig.url, appConfig.key); }
+function showLoading(v){ document.getElementById("loading").classList.toggle("active", !!v); }
+function esc(s){ return String(s??"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m])); }
+function money(n){ return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n||0));}
+function dt(v){ try { return new Date(v).toLocaleString("id-ID"); } catch(e){ return v; } }
+function notify(msg){ alert(msg); }
+
+async function ensureModel(){
+  if(!mobileNetModel){
+    showLoading(true);
+    mobileNetModel = await mobilenet.load({version:2, alpha:1.0});
+    showLoading(false);
+  }
+  return mobileNetModel;
+}
+async function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function cosineSimilarity(a,b){
+  if(!Array.isArray(a) || !Array.isArray(b) || !a.length || a.length !== b.length) return 0;
+  let dot=0, na=0, nb=0;
+  for(let i=0;i<a.length;i++){
+    const x = Number(a[i]||0), y = Number(b[i]||0);
+    dot += x*y; na += x*x; nb += y*y;
+  }
+  return dot / ((Math.sqrt(na) * Math.sqrt(nb)) || 1);
+}
+async function imageEmbeddingFromDataUrl(dataUrl){
+  await ensureModel();
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.src = dataUrl;
+  await new Promise((resolve,reject)=>{ img.onload = resolve; img.onerror = reject; });
+  const emb = mobileNetModel.infer(img, true);
+  const arr = Array.from(await emb.data());
+  emb.dispose();
+  return arr;
+}
+function render(){
+  const root = document.getElementById("root");
+  if(!appConfig?.url || !appConfig?.key){
+    root.innerHTML = `
+      <div class="app setup">
+        <div class="card">
+          <div class="badge">Versi Gratis</div>
+          <h1 style="margin-top:12px">${APP_NAME}</h1>
+          <div class="subtitle">Aplikasi pencari harga helm dari foto. Bisa dipakai di HP dan laptop.</div>
+          <div class="grid grid-2" style="margin-top:18px">
+            <div>
+              <label>Supabase URL</label>
+              <input id="setup-url" value="${esc(state.setup.url)}" placeholder="https://xxxxx.supabase.co">
+            </div>
+            <div>
+              <label>Supabase Anon / Publishable Key</label>
+              <input id="setup-key" value="${esc(state.setup.key)}" placeholder="sb_publishable_xxx">
+            </div>
+          </div>
+          <div class="hint" style="margin-top:16px">Jalankan dulu <b>schema.sql</b> di Supabase SQL Editor, lalu isi URL dan key di sini.</div>
+          <div class="inline" style="margin-top:16px"><button class="btn primary" id="save-setup">Simpan & Hubungkan</button></div>
+        </div>
+      </div>`;
+    document.getElementById("setup-url").oninput = e=>state.setup.url = e.target.value;
+    document.getElementById("setup-key").oninput = e=>state.setup.key = e.target.value;
+    document.getElementById("save-setup").onclick = async ()=>{
+      if(!state.setup.url || !state.setup.key){ notify("URL dan key wajib diisi."); return; }
+      saveConfig({ url: state.setup.url.trim(), key: state.setup.key.trim() });
+      await refreshData();
+      render();
+    };
+    return;
+  }
+
+  const filteredProducts = state.scan.branch === "ALL" ? state.products : state.products.filter(p => p.branch === state.scan.branch);
+  root.innerHTML = `
+    <div class="app">
+      <div class="topbar">
+        <div>
+          <div class="badge">Gratis • HP & Laptop</div>
+          <h1 style="margin-top:10px">${APP_NAME}</h1>
+          <div class="subtitle">Foto helm → tampil harga, stok, cabang, dan produk mirip.</div>
+        </div>
+        <div class="inline">
+          <button class="btn" id="refresh-btn">Refresh Data</button>
+          <button class="btn danger" id="reset-setup">Setup Ulang</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab ${state.page==='scan'?'active':''}" data-page="scan">📷 Scan Foto Helm</button>
+        <button class="tab ${state.page==='products'?'active':''}" data-page="products">📦 Data Helm</button>
+        <button class="tab ${state.page==='add'?'active':''}" data-page="add">➕ Tambah Helm</button>
+      </div>
+
+      <div class="page ${state.page==='scan'?'active':''}">
+        <div class="grid grid-2">
+          <div class="card">
+            <h2>Scan / Upload Foto Helm</h2>
+            <label>Filter Cabang</label>
+            <select id="scan-branch">
+              <option value="ALL" ${state.scan.branch==='ALL'?'selected':''}>Semua Cabang</option>
+              ${[...new Set(state.products.map(p=>p.branch).filter(Boolean))].map(b=>`<option value="${esc(b)}" ${state.scan.branch===b?'selected':''}>${esc(b)}</option>`).join("")}
+            </select>
+            <label>Foto helm yang dicari</label>
+            <input id="scan-file" type="file" accept="image/*" capture="environment">
+            <div class="hint" style="margin-top:12px">Gunakan foto yang cukup terang. Semakin mirip foto produk di database, semakin akurat hasilnya.</div>
+            <div style="margin-top:14px">${state.scan.queryImageData ? `<img class="preview" src="${state.scan.queryImageData}" alt="query">` : `<div class="preview">Belum ada foto</div>`}</div>
+            <div class="inline" style="margin-top:16px"><button class="btn primary" id="find-match">Cari Barang Mirip</button></div>
+          </div>
+          <div class="card">
+            <h2>Hasil Pencarian</h2>
+            <div class="subtitle" style="margin-bottom:12px">Menampilkan 5 produk paling mirip.</div>
+            <div class="result-list">
+              ${state.scan.results.length ? state.scan.results.map(r=>`
+                <div class="product-card">
+                  <img src="${r.imageData || ''}" alt="${esc(r.name)}">
+                  <div>
+                    <h3>${esc(r.name)}</h3>
+                    <div class="subtitle">${esc(r.code)} • ${esc(r.category || '-')}</div>
+                    <div style="margin-top:12px" class="grid">
+                      <div><b>Harga:</b> ${money(r.price)}</div>
+                      <div><b>Stok:</b> ${Number(r.stock || 0)}</div>
+                      <div><b>Cabang:</b> ${esc(r.branch || '-')}</div>
+                    </div>
+                    <div class="score">Kecocokan: ${Math.round((r.score || 0) * 100)}%</div>
+                  </div>
+                </div>`).join("") : `<div class="empty">Belum ada hasil. Upload foto helm lalu klik <b>Cari Barang Mirip</b>.</div>`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page ${state.page==='products'?'active':''}">
+        <div class="card">
+          <div class="inline" style="justify-content:space-between;margin-bottom:12px">
+            <h2>Data Helm</h2><div class="hint">${filteredProducts.length} produk ditampilkan</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Foto</th><th>Kode</th><th>Nama</th><th>Harga</th><th>Stok</th><th>Cabang</th><th>Kategori</th><th>Aksi</th></tr></thead>
+              <tbody>
+                ${filteredProducts.length ? filteredProducts.map(p=>`
+                  <tr>
+                    <td>${p.imageData ? `<img src="${p.imageData}" alt="${esc(p.name)}" style="width:70px;height:70px;object-fit:cover;border-radius:12px;border:1px solid var(--line)">` : '-'}</td>
+                    <td>${esc(p.code)}</td>
+                    <td><b>${esc(p.name)}</b><div class="muted">${esc(p.notes || '')}</div></td>
+                    <td>${money(p.price)}</td>
+                    <td>${Number(p.stock || 0)}</td>
+                    <td>${esc(p.branch || '-')}</td>
+                    <td>${esc(p.category || '-')}</td>
+                    <td><button class="btn small danger" data-delete="${esc(p.id)}">Hapus</button></td>
+                  </tr>`).join("") : `<tr><td colspan="8"><div class="empty">Belum ada data helm.</div></td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="page ${state.page==='add'?'active':''}">
+        <div class="grid grid-2">
+          <div class="card">
+            <h2>Tambah Data Helm</h2>
+            <label>Kode Barang</label><input id="add-code" value="${esc(state.add.code)}" placeholder="Contoh: HL001">
+            <label>Nama Barang</label><input id="add-name" value="${esc(state.add.name)}" placeholder="Contoh: Helm Bogo Retro KLX V2">
+            <label>Harga</label><div class="money-field"><span class="rp">Rp</span><input id="add-price" type="number" value="${esc(state.add.price)}"></div>
+            <label>Stok</label><input id="add-stock" type="number" value="${esc(state.add.stock)}">
+            <label>Cabang</label><input id="add-branch" value="${esc(state.add.branch)}" placeholder="Contoh: Lantai 2 / Palangka Raya">
+            <label>Kategori</label><input id="add-category" value="${esc(state.add.category)}" placeholder="Contoh: Retro / Full Face">
+            <label>Catatan</label><textarea id="add-notes" placeholder="Warna, size, lokasi rak, dll">${esc(state.add.notes)}</textarea>
+            <label>Foto Produk</label><input id="add-file" type="file" accept="image/*">
+            <div class="inline" style="margin-top:16px"><button class="btn success" id="save-product">Simpan Produk</button></div>
+          </div>
+          <div class="card">
+            <h2>Preview Foto</h2>
+            <div class="subtitle">Foto ini akan dipakai untuk pencarian visual.</div>
+            <div style="margin-top:16px">${state.add.imageData ? `<img class="preview" src="${state.add.imageData}" alt="preview">` : `<div class="preview">Belum ada foto</div>`}</div>
+            <div class="hint" style="margin-top:16px">Tips hasil bagus:<br>• gunakan foto depan yang jelas<br>• background sederhana<br>• tambah 1 produk per model unik</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  document.querySelectorAll("[data-page]").forEach(btn=>btn.onclick = ()=>{ state.page = btn.dataset.page; render(); });
+  document.getElementById("refresh-btn").onclick = async ()=>{ await refreshData(); render(); };
+  document.getElementById("reset-setup").onclick = ()=>{ if(confirm("Hapus koneksi Supabase dari browser ini?")){ localStorage.removeItem(CONFIG_KEY); appConfig = null; state.setup = { url:"", key:"" }; render(); } };
+  const scanBranch = document.getElementById("scan-branch");
+  if(scanBranch) scanBranch.onchange = e=>{ state.scan.branch = e.target.value; render(); };
+  const scanFile = document.getElementById("scan-file");
+  if(scanFile) scanFile.onchange = async e=>{ const file = e.target.files?.[0]; if(!file) return; state.scan.queryImageData = await fileToDataUrl(file); render(); };
+  const findBtn = document.getElementById("find-match");
+  if(findBtn) findBtn.onclick = findMatches;
+  document.getElementById("add-code").oninput = e=>state.add.code = e.target.value;
+  document.getElementById("add-name").oninput = e=>state.add.name = e.target.value;
+  document.getElementById("add-price").oninput = e=>state.add.price = e.target.value;
+  document.getElementById("add-stock").oninput = e=>state.add.stock = e.target.value;
+  document.getElementById("add-branch").oninput = e=>state.add.branch = e.target.value;
+  document.getElementById("add-category").oninput = e=>state.add.category = e.target.value;
+  document.getElementById("add-notes").oninput = e=>state.add.notes = e.target.value;
+  const addFile = document.getElementById("add-file");
+  if(addFile) addFile.onchange = async e=>{ const file = e.target.files?.[0]; if(!file) return; state.add.imageData = await fileToDataUrl(file); render(); };
+  const saveBtn = document.getElementById("save-product");
+  if(saveBtn) saveBtn.onclick = saveProduct;
+  document.querySelectorAll("[data-delete]").forEach(btn=>btn.onclick = ()=>deleteProduct(btn.dataset.delete));
+}
+async function refreshData(){
+  if(!appConfig?.url || !appConfig?.key) return;
+  try{
+    showLoading(true);
+    const { data, error } = await supabase().from("helm_products").select("*").order("created_at", { ascending:false });
+    if(error) throw error;
+    state.products = (data || []).map(r=>({
+      id: r.id, code: r.code, name: r.name, price: Number(r.price || 0), stock: Number(r.stock || 0),
+      branch: r.branch || "", category: r.category || "", notes: r.notes || "", imageData: r.image_data || "", embedding: r.image_embedding || []
+    }));
+  } catch(err){
+    notify("Gagal memuat data: " + err.message);
+  } finally {
+    showLoading(false);
+  }
+}
+async function saveProduct(){
+  const p = state.add;
+  if(!p.code || !p.name || !p.price || !p.branch || !p.imageData){ notify("Kode, nama, harga, cabang, dan foto wajib diisi."); return; }
+  try{
+    showLoading(true);
+    const embedding = await imageEmbeddingFromDataUrl(p.imageData);
+    const payload = { code:p.code.trim(), name:p.name.trim(), price:Number(p.price || 0), stock:Number(p.stock || 0), branch:p.branch.trim(), category:p.category.trim(), notes:p.notes.trim(), image_data:p.imageData, image_embedding:embedding };
+    const { error } = await supabase().from("helm_products").insert(payload);
+    if(error) throw error;
+    state.add = { code:"", name:"", price:"", stock:"", branch:"", category:"", notes:"", imageData:"" };
+    await refreshData(); state.page = "products"; render(); notify("Produk berhasil disimpan.");
+  } catch(err){
+    notify("Gagal simpan produk: " + err.message);
+  } finally {
+    showLoading(false);
+  }
+}
+async function deleteProduct(id){
+  if(!confirm("Hapus produk ini?")) return;
+  try{
+    showLoading(true);
+    const { error } = await supabase().from("helm_products").delete().eq("id", id);
+    if(error) throw error;
+    await refreshData(); render();
+  } catch(err){
+    notify("Gagal hapus produk: " + err.message);
+  } finally {
+    showLoading(false);
+  }
+}
+async function findMatches(){
+  if(!state.scan.queryImageData){ notify("Upload atau foto dulu helm yang mau dicari."); return; }
+  if(!state.products.length){ notify("Belum ada data produk."); return; }
+  try{
+    showLoading(true);
+    const emb = await imageEmbeddingFromDataUrl(state.scan.queryImageData);
+    const base = state.scan.branch === "ALL" ? state.products : state.products.filter(p=>p.branch === state.scan.branch);
+    state.scan.results = base.map(p => ({ ...p, score: cosineSimilarity(emb, p.embedding || []) })).sort((a,b)=>b.score-a.score).slice(0,5);
+    state.page = "scan"; render();
+  } catch(err){
+    notify("Gagal cari produk: " + err.message);
+  } finally {
+    showLoading(false);
+  }
+}
+(async function init(){ if(appConfig?.url && appConfig?.key){ await refreshData(); } render(); })();
+</script>
+</body>
+</html>
